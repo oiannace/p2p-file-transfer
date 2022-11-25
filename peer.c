@@ -45,6 +45,7 @@ int get_int_len (int value){
 
 int main(int argc, char **argv)
 {
+	char buffer[5000];
 	struct hostent *hp, *hp2;
 	int port_length;
 	char *serverHost = "0";
@@ -59,7 +60,24 @@ int main(int argc, char **argv)
 	struct	sockaddr_in peer1_tcp, new_peer;  //tcp socket
 	struct in_addr ip_addr;
 	int		s, sd, sd_read, sd_new, type, alen_tcp, alen, alen_client;	/* socket descriptor and socket type	*/
-	
+	char registered_content_list[10][10];
+	int registered_content_index = 0;
+	char host_name[10];
+	char function[2];
+	struct  PDU_D_S         search_pdu, dereg_pdu, download;
+	struct gen_pdu acknowledge, listing, listing_peers;
+	struct PDU_reg download_pdu;
+	int	n, m, i;
+	char	socket_read_buf[101];
+	char 	console_read_buf[100];
+	FILE*	fp;
+	char	file_name[100];
+			
+	char other_host_name[10];
+	char content_name[10];
+	int user_flag = 1;
+	struct 	PDU_reg 	register_pdu;
+
 
 	switch (argc) {
 		case 1:
@@ -76,7 +94,7 @@ int main(int argc, char **argv)
 	}
 
 	//tcp socket setup
-	/* Create a stream socket	*/	
+	/* Create a stream socket*/	
 	if ((sd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
 		fprintf(stderr, "Can't creat a socket\n");
 		exit(1);
@@ -126,6 +144,9 @@ int main(int argc, char **argv)
 	}
 
 	printf("Enter the name of this host:\n");
+	m = read(0, host_name, 10);
+	host_name[m-1] = '\0';
+
 	//tcp select setup
 	fd_set rfds, afds;
 	FD_ZERO(&afds);
@@ -133,46 +154,25 @@ int main(int argc, char **argv)
 	FD_SET(0, &afds);
 	while(1){
 		
-		
-		memcpy(&rfds, &afds, sizeof(rfds));
-		select(FD_SETSIZE, &rfds, NULL, NULL, NULL);
-	
-		if(FD_ISSET(0, &rfds)){
-
-
-			//set up variables/file pointer
-			int	n, m, i;
-			char	socket_read_buf[101];
-			char 	console_read_buf[100];
-			FILE*	fp;
-			char	file_name[100];
-			char host_name[10];
-			char other_host_name[10];
-			char content_name[10];
-			struct 	PDU_reg 	register_pdu;
-			memset(&register_pdu, 0, sizeof(register_pdu));
-			struct  PDU_D_S         search_pdu, dereg_pdu, download;
-			struct gen_pdu acknowledge, listing;
-			struct PDU_reg download_pdu;
-		
-			m = read(0, host_name, 10);
-			host_name[m-1] = '\0';
-			char function[2];
-			alen = sizeof(sin);
-	
-			//set up PDU and type
-	
-		    	
-
-			// ask user what function to complete
+		// if the last iteration of the loop was tcp file transfer, user_flag = 0 and so dont reprint the following options
+		if(user_flag == 1){
 			printf("What function would you like to complete?:\n");
 			printf("---------------------------------------------\n");
 			printf("R : Content registration\n");
 			printf("D : Content download request\n");
-			printf("S : Search for content and associated server\n");
+			//printf("S : Search for content and associated server\n");
 			printf("T : Content deregistration\n");
-			printf("C : Content data\n");
 			printf("O : List registered content\n");
+			printf("Q : Quit and deregister all content\n");
+		}
+		memcpy(&rfds, &afds, sizeof(rfds));
+		select(FD_SETSIZE, &rfds, NULL, NULL, NULL);
+		
+		if(FD_ISSET(0, &rfds)){
+			
+			memset(&register_pdu, 0, sizeof(register_pdu));
+			
+			alen = sizeof(sin);
 	
 			m = read(0, function, 2);
 	
@@ -212,6 +212,9 @@ int main(int argc, char **argv)
 			
 					printf("Port number: %s\n", register_pdu.port_number);
 					sendto(s, &register_pdu, sizeof(register_pdu), 0, (struct sockaddr *)&sin, sizeof(sin)); 
+
+					sprintf(registered_content_list[registered_content_index], "%s", register_pdu.content_name);
+					registered_content_index++;
 				}
 			}
 			else if(function[0] == 'S')
@@ -325,47 +328,47 @@ int main(int argc, char **argv)
 				}
 
 				struct content_pdu content;
+				memset(&content, 0, sizeof(content));
 				FILE *fp;
 				write(sd_read, content_name, sizeof(content_name));
+				fp = fopen(content_name, "a");
+
 				n = read(sd_read, &content, 1460);    //read the first 1459 bytes of the file from server
-		
+				fputs(content.data, fp);			//write contents to file
+
+				
+				fclose(fp);
+				
+				
 				if(content.type == 'E'){		//compare message from server to see if theres a file not found error
 					write(1,"file not found", 14);
 				}
 				else
 				{
-					//char * p = buffer;
-					//int j = 1;
-					//while(n == 1459){			//if n == 100 then the max bytes were read, so read from server again
-					//	n = read(sd, p+(j*1459), 1469);  //read from buffer index p + (j*100)
-					//	j++;
-					//}
-					//sbuf[strcspn(sbuf, "\n")] = 0;		//replace filename new line char with null terminating string
-					fp = fopen(content_name, "w");			//open file
-					fputs(content.data, fp);			//write contents to file
+					while(n == 1460){			//if n == 100 then the max bytes were read, so read from server again					
+						fp = fopen(content_name, "a");
 
-				
-				fclose(fp);
-				close(sd_read);
-				
-				
-				memset(&register_pdu, 0, sizeof(register_pdu));
-				register_pdu.type = 'R';
-				sprintf(register_pdu.peer_name, "%s", host_name);  //, 6);
-				sprintf(register_pdu.content_name, "%s", content_name);
+						n = read(sd_read, &content, 1460);    //read the first 1459 bytes of the file from server
+						fputs(content.data, fp);			//write contents to file
+
+						fclose(fp);
 						
-				port_length = get_int_len(peer1_tcp.sin_port);
+					}
+					close(sd_read);
+				
+				
+					memset(&register_pdu, 0, sizeof(register_pdu));
+					register_pdu.type = 'R';
+					sprintf(register_pdu.peer_name, "%s", host_name);  //, 6);
+					sprintf(register_pdu.content_name, "%s", content_name);
+						
+					port_length = get_int_len(peer1_tcp.sin_port);
 					
-				sprintf(register_pdu.port_number, "%d", peer1_tcp.sin_port);
-				sprintf(register_pdu.ip_address, "%d", peer1_tcp.sin_addr.s_addr);
-				register_pdu.port_number[port_length] = '\0';
-					//write(1, register_pdu.peer_name, 10);
-	
-		
-				printf("%d\n", peer1_tcp.sin_port);
-					printf("block\n");					
-				printf("%s\n", register_pdu.port_number);
-				sendto(s, &register_pdu, sizeof(register_pdu), 0, (struct sockaddr *)&sin, sizeof(sin)); 
+					sprintf(register_pdu.port_number, "%d", peer1_tcp.sin_port);
+					sprintf(register_pdu.ip_address, "%d", peer1_tcp.sin_addr.s_addr);
+					register_pdu.port_number[port_length] = '\0';
+						
+					sendto(s, &register_pdu, sizeof(register_pdu), 0, (struct sockaddr *)&sin, sizeof(sin)); 
 				}
 			}
 			else if(function[0] == 'O')
@@ -380,18 +383,25 @@ int main(int argc, char **argv)
 					printf("Data returned from index server is not the correct type");
 					exit(1);
 				}
+
+				memset(&listing_peers, 0, sizeof(listing_peers));
+				recvfrom(s, &listing_peers, sizeof(listing_peers), 0, (struct sockaddr *)&sin, &alen);
+				if(listing_peers.type != 'O'){
+					printf("Data returned from index server is not the correct type");
+					exit(1);
+				}
+
 				for(i = 0; i<(sizeof(listing.data)/10); i++){
 				
-					printf("Name of content %d: %.*s\n",i+1, (i+1)*10, (i*10) + listing.data);
+					printf("Name of content/host %d: %.*s, %.*s\n",i+1, (i+1)*10, (i*10) + listing.data, (i+1)*10, (i*10) + listing_peers.data);
 				}		
 				
 				
 			}
 			else if(function[0] == 'T')
-			{
-				//do this		
+			{		
 
-				memset(&dereg_pdu, 0, sizeof(search_pdu));
+				memset(&dereg_pdu, 0, sizeof(dereg_pdu));
 				dereg_pdu.type = 'T';
 		
 				sprintf(dereg_pdu.peer_name, "%s", host_name);
@@ -402,8 +412,26 @@ int main(int argc, char **argv)
 		
 				sprintf(dereg_pdu.content_name, "%s", content_name);
 
+				write(1, &dereg_pdu, sizeof(dereg_pdu));
+				
 				sendto(s, &dereg_pdu, sizeof(dereg_pdu), 0, (struct sockaddr *)&sin, sizeof(sin)); 
 			}
+			else if(function[0] == 'Q')
+			{
+				memset(&dereg_pdu, 0, sizeof(dereg_pdu));
+				dereg_pdu.type = 'T';
+		
+				sprintf(dereg_pdu.peer_name, "%s", host_name);
+
+				for(i = 0; i < registered_content_index; i++){
+					sprintf(dereg_pdu.content_name, "%s", registered_content_list[i]);
+					sendto(s, &dereg_pdu, sizeof(dereg_pdu), 0, (struct sockaddr *)&sin, sizeof(sin)); 
+				}
+				exit(0);			
+			}
+			
+			user_flag = 1;
+		
 		}
 	
 		if(FD_ISSET(sd, &rfds)){
@@ -426,14 +454,17 @@ int main(int argc, char **argv)
 				n = read(sd_new, filename, 30);
 				filename[strcspn(filename, "\n")] = 0;
 				fp = fopen(filename, "r");
-	
-				fgets(buffer, 1459, fp);
-				content.type = 'C';
-				memcpy(content.data, buffer, sizeof(buffer));
-				n = write(sd_new, &content, 1459);
 				char * p = buffer;
-				while(n == 1459){
-					n = write(sd_new, p+1459, 1459);
+				int j = 0;
+				fgets(buffer, 5000, fp);
+				content.type = 'C';
+				sprintf(content.data, p+(j*1459), 1459);
+				j++;
+				n = write(sd_new, &content, 1460);
+				
+				while(n == 1460){
+					sprintf(content.data, p+(j*1459), 1459);
+					n = write(sd_new, &content, 1460);
 
 				}
 				fclose(fp);
@@ -448,6 +479,7 @@ int main(int argc, char **argv)
 				
 			  }
 			
+			user_flag = 0;
 			
 		}
 	}

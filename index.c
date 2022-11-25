@@ -53,6 +53,7 @@ int main(int argc, char *argv[])
 	struct PDU_reg content_list[10];
 	int content_list_index = 0;
 	int i;
+	
 	switch(argc){
 		case 1:
 			break;
@@ -83,7 +84,7 @@ int main(int argc, char *argv[])
 	alen = sizeof(fsin);
 
 
-	struct 	PDU_D_S search_pdu, s_recieve_pdu;
+	struct 	PDU_D_S search_pdu, s_recieve_pdu, dereg_pdu;
 	int 	n;
 	char	socket_buf[101];
 	char	file_name[100];
@@ -115,7 +116,7 @@ int main(int argc, char *argv[])
 				}
 //
 			}	
-			printf("Registered Content:\n");		
+			printf("\nRegistered Content:\n");		
 			write(1, &content_list[content_list_index], sizeof(content_list[content_list_index]));
 			
 			content_list_index++;
@@ -139,18 +140,13 @@ int main(int argc, char *argv[])
 					
 					sendto(s, &content_list[i], sizeof(content_list[i]), 0, (struct sockaddr *)&fsin, sizeof(fsin));
 				}
-				else {
-					memset(&match, 0, sizeof(match));
-					match.type = 'E';
-					//sprintf(match.data, "%s", "no match");
-					//match.data[8] = '\0';
-					sendto(s, &match, sizeof(match), 0, (struct sockaddr *)&fsin, sizeof(fsin));
-				}
+				
 			}
 			
 		}
 		else if(recieve_pdu.type == 'O')
 		{
+			//content names
 			memset(&listing_pdu, 0, sizeof(listing_pdu));
 			listing_pdu.type = 'O';
 			
@@ -161,58 +157,34 @@ int main(int argc, char *argv[])
 			}
 			listing_pdu.data[i*10 + j + 1] = '\0';
 			sendto(s, &listing_pdu, sizeof(listing_pdu), 0, (struct sockaddr *)&fsin, sizeof(fsin));
-		}		
-		/*if (spdu.type == 'C') {
-			memcpy(file_name, spdu.data, sizeof(socket_buf) - 1);
-			printf("File Name %s\n", file_name);
-			FILE* fp = fopen(file_name, "r");
+
+			//peer names
+			memset(&listing_pdu, 0, sizeof(listing_pdu));
+			listing_pdu.type = 'O';
 			
-			if (fp == NULL) {
-				spdu.type = 'E';
-				printf("Error: No File\n");
-				sendto(s, &spdu, 101, 0, (struct sockaddr *)&fsin, sizeof(fsin));
-			}
-			else {
-				fseek(fp, 0L, SEEK_END);
-	
-				file_size = ftell(fp);
-			
-				char *file_buf = (char *) malloc(file_size);
-				fseek(fp, 0L, SEEK_SET);
-				fread(file_buf, file_size, 1, fp);
-				
-				printf("File Size %d\n", file_size);
-				sendto(s, &spdu, 101, 0, (struct sockaddr *)&fsin, sizeof(fsin));
-				
-				
-				int bytes_remaining = file_size;
-				int head = 0;
-				int tail = file_size - 1;
-				
-				while (bytes_remaining > 0 && head < tail) {
-					if (bytes_remaining < 100) {
-						spdu.type = 'F';
-						
-						memcpy(spdu.data, file_buf + head, bytes_remaining);
-						
-						sendto(s, &spdu, 101, 0, (struct sockaddr *)&fsin, sizeof(fsin));
-						
-						head += bytes_remaining;
-						bytes_remaining = 0;
-						
-					}
-					else {
-						spdu.type = 'D';
-						memcpy(spdu.data, file_buf + head, 100);
-						
-						head += 100;
-						bytes_remaining -= 100;
-						
-						sendto(s, &spdu, 101, 0, (struct sockaddr *)&fsin, sizeof(fsin));						
-					}					
-					memset(&spdu, 0, sizeof(struct PDU));
+			for(i = 0; i< content_list_index; i++){
+				for(j = 0; j< 10; j++){
+				listing_pdu.data[i*10 + j] = content_list[i].peer_name[j];
 				}
-			}*/
-		//}
+			}
+			listing_pdu.data[i*10 + j + 1] = '\0';
+			sendto(s, &listing_pdu, sizeof(listing_pdu), 0, (struct sockaddr *)&fsin, sizeof(fsin));
+		}
+		else if(recieve_pdu.type == 'T')
+		{
+			memset(&dereg_pdu, 0, sizeof(dereg_pdu));
+			
+			for(i=0; i<10; i++){
+				dereg_pdu.peer_name[i] = recieve_pdu.data[i];
+				dereg_pdu.content_name[i] = recieve_pdu.data[i+10];
+
+			}
+			
+			for(i = 0; i<10; i++){
+				if(strcmp(dereg_pdu.peer_name, content_list[i].peer_name) == 0 && strcmp(dereg_pdu.content_name, content_list[i].content_name) == 0){					
+					memset(&content_list[i], 0, sizeof(content_list[i]));
+				}
+			}
+		}		
 	}
 }
