@@ -9,6 +9,8 @@
 #include <netdb.h>
 #include <errno.h>
 #include <math.h>
+
+#define MIN(x,y) (((x) < (y)) ? (x) : (y))
 struct content_pdu {
 	char type;
 	char data[1459];
@@ -300,11 +302,11 @@ int main(int argc, char **argv)
 		
 				//determine if content exists before proceeding
 				if(acknowledge.type == 'E'){
-					write(1, "Content does not exist", 22);
+					write(1, "Content does not exist\n", 24);
 					exit(1);
 				}
 				else if(acknowledge.type == 'A'){
-					write(1, "Content exists at this peer", 27);
+					write(1, "Content exists at this peer\n", 29);
 				}
 		
 				//since the recieve pdu has only 1 field of 100 byte size, need to iterate over each char and assign it to the appropriate fields
@@ -361,14 +363,18 @@ int main(int argc, char **argv)
 				}
 				else
 				{
-					fp = fopen(content_name, "a"); 	//open the file in append mode
+					fp = fopen(content_name, "w"); 	//open the file in append mode
 					fputs(content.data, fp);			//write contents to file
 					fclose(fp); 						//close the file pointer
 
-					while(n == 1460){					//if n == 1460 then the max bytes were read, so read from server again					
+					while(n == 1460){					//if n == 1460 then the max bytes were read, so read from server again		
+						memset(&content, 0, sizeof(content));		
 						n = read(sd_read, &content, 1460);    //read the next 1459 bytes of the file from server
 
 						fp = fopen(content_name, "a"); 	//open file in append mode
+						if(n < 1460){
+							content.data[n-1] = '\0';
+						}
 						fputs(content.data, fp);			//write contents to file
 						fclose(fp); 					//close file pointer
 					}
@@ -486,32 +492,33 @@ int main(int argc, char **argv)
 				(void) close(sd);  //close the original socket in the child
 				char filename[30];
 				char buffer[1459];
+				memset(&buffer, 0, sizeof(buffer));
 				int n;
 				struct content_pdu content; //pdu that this peer will send to the other with file data - 1 byte for type, 1459 bytes for data
 				FILE *fp;
-				
+				int file_size;
 				n = read(sd_new, filename, 30); //read file name from other peer
 				filename[strcspn(filename, "\n")] = 0; //set \n to 0
 				fp = fopen(filename, "r");  //open file in read mode
+				fseek(fp, 0L, SEEK_END);
+				file_size = ftell(fp);
+				fseek(fp, 0L, SEEK_SET);
 				
-				char * p = buffer; //pointer to the buffer that will read from the file
+				
+				char * p = buffer; //pointer to the buffer that will read from the file	
 				int j = 0;
 				 
-				fgets(buffer, 5000, fp);  //read 5000 bytes from the file
+				while(fgets(buffer, 1459, fp)){  //1459 bytes from file at a time till end of file
+					
+					memset(&content, 0, sizeof(content));
+					content.type = 'C';  //set type to C, meaning data pdu
+					sprintf(content.data, "%s", buffer);
 				
-				content.type = 'C';  //set type to C, meaning data pdu
-
-				sprintf(content.data, p+(j*1459), 1459); //copy first 1459 bytes of file to content.data
-				j++;
-				n = write(sd_new, &content, 1460); //send first 1459 bytes to other peer
-				
-				while(n == 1460){  //if n == 1460 then max bytes were sent, so need to send another pdu with more data from the file
-					memset(&content, 0, sizeof(content));  //reset content pdu to empty
-					content.type = 'C';
-					sprintf(content.data, p+(j*1459), 1459); //copy next 1459 bytes from file buffer to content.data
-					n = write(sd_new, &content, 1460); //send pdu with next 1459 bytes to other peer
-					j++;
+					n = write(sd_new, &content, 1460); //send 1459 bytes to other peer
+					memset(&buffer, 0, sizeof(buffer));
 				}
+				
+				
 				fclose(fp); //close file pointer
 				close(sd_new); //close this new socket
 				
