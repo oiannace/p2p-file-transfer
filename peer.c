@@ -20,7 +20,6 @@ struct PDU_reg {
 	char content_name[10];
 	char port_number[6];
 	char ip_address[4];
-	//char ip_address[60];
 };
 struct PDU_D_S {
 	char type;
@@ -33,10 +32,7 @@ struct gen_pdu {
 	char data[100];
 };
 
-/*------------------------------------------------------------------------
- * main - UDP client for FILE DOWNLOAD service that prints the resulting time
- *------------------------------------------------------------------------
- */
+//function to ge the length of an int
 int get_int_len (int value){
   int l=1;
   while(value>9){ l++; value/=10; }
@@ -47,7 +43,7 @@ int main(int argc, char **argv)
 {
 	char buffer[5000];
 	struct hostent *hp, *hp2;
-	int port_length;
+	int port_length, ip_length;
 	char *serverHost = "0";
 	char	*host = "localhost";
 	int		port = 3002;
@@ -102,29 +98,37 @@ int main(int argc, char **argv)
 
 	/* Bind an address to the socket	*/
 	bzero((char *)&peer1_tcp, sizeof(struct sockaddr_in));
-	peer1_tcp.sin_family = AF_INET;
-	peer1_tcp.sin_port = htons(0);
+	peer1_tcp.sin_family = AF_INET;  //IPV4
+	peer1_tcp.sin_port = htons(0);   //argument 0 indicates that we want a randomized port number
 	//peer1_tcp.sin_addr.s_addr = htonl(INADDR_ANY);
+
+	//following section was used in the echo file provided in class
+	//converts the host name to a format that the sockets can use
 	if (hp2 = gethostbyname(host)) 
 	  bcopy(hp2->h_addr, (char *)&peer1_tcp.sin_addr, hp2->h_length);
 	else if ( inet_aton(host, (struct in_addr *) &peer1_tcp.sin_addr) ){
 	  fprintf(stderr, "Can't get server's address\n");
 	  exit(1);
 	}	
+
+	//bind the created socket to the structure with the port number, ip address, etc
 	if (bind(sd, (struct sockaddr *)&peer1_tcp, sizeof(peer1_tcp)) == -1){
 		fprintf(stderr, "Can't bind name to socket\n");
 		exit(1);
 	}
 
-	listen(sd, 10);
+	
+	listen(sd, 10); //listen on the tcp socket
+
 	alen_tcp = sizeof(struct sockaddr_in);
-	getsockname(sd, (struct sockaddr *)&peer1_tcp, &alen_tcp);	//need to send peer1_tcp.sin_addr.s_addr to index via udp
+	
+	getsockname(sd, (struct sockaddr *)&peer1_tcp, &alen_tcp);	//retrieves the socket information, need to do this since we randomized port number
 
 
 	//udp socket setup
-	memset(&sin, 0, sizeof(sin));
-	sin.sin_family = AF_INET;                                                                
-	sin.sin_port = htons(port);
+	memset(&sin, 0, sizeof(sin)); //empty struct
+	sin.sin_family = AF_INET;     //IPV4                                                            
+	sin.sin_port = htons(port);	  //hardcoded port for udp connection to server
                                                                                         
     /* Map host name to IP address, allowing for dotted decimal */
 	if ( phe = gethostbyname(host) ){
@@ -138,20 +142,24 @@ int main(int argc, char **argv)
 	if (s < 0)
 		fprintf(stderr, "Can't create socket \n");
                                                                     
-    /* Connect the socket */
+    /* Connect the socket to the server via udp */
+	//not a connection like tcp, just saves the info so instead of sendto and recvfrom can use read and write
 	if (connect(s, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
 		fprintf(stderr, "Can't connect to %s\n", host);
 	}
 
+	//prompt the user to enter the name of this peer
 	printf("Enter the name of this host:\n");
 	m = read(0, host_name, 10);
-	host_name[m-1] = '\0';
+	host_name[m-1] = '\0';  //conver the \n to a \0 which indicates end of string
 
 	//tcp select setup
 	fd_set rfds, afds;
-	FD_ZERO(&afds);
-	FD_SET(sd, &afds);
-	FD_SET(0, &afds);
+	FD_ZERO(&afds); //initialize struct to empty
+	FD_SET(sd, &afds); //set up tcp port as an option for select
+	FD_SET(0, &afds); //set up standard in (command line) as an option for select
+	
+	
 	while(1){
 		
 		// if the last iteration of the loop was tcp file transfer, user_flag = 0 and so dont reprint the following options
@@ -160,23 +168,25 @@ int main(int argc, char **argv)
 			printf("---------------------------------------------\n");
 			printf("R : Content registration\n");
 			printf("D : Content download request\n");
-			//printf("S : Search for content and associated server\n");
+			printf("S : Search for content and associated server\n");
 			printf("T : Content deregistration\n");
 			printf("O : List registered content\n");
 			printf("Q : Quit and deregister all content\n");
 		}
-		memcpy(&rfds, &afds, sizeof(rfds));
-		select(FD_SETSIZE, &rfds, NULL, NULL, NULL);
 		
+		memcpy(&rfds, &afds, sizeof(rfds));
+		select(FD_SETSIZE, &rfds, NULL, NULL, NULL); //wait until either connection through tcp port or standard in
+
+		//if connection through standard in		
 		if(FD_ISSET(0, &rfds)){
 			
-			memset(&register_pdu, 0, sizeof(register_pdu));
+			memset(&register_pdu, 0, sizeof(register_pdu)); //initialize as empty
 			
-			alen = sizeof(sin);
+			alen = sizeof(sin); 
 	
-			m = read(0, function, 2);
+			m = read(0, function, 2); //read the input from the "What function would you like to complete?" question
 	
-
+			//registration
 			if(function[0] == 'R')
 			{
 				
@@ -191,68 +201,77 @@ int main(int argc, char **argv)
 					exit(1);
 				}
 		
-				register_pdu.content_name[m-1] = '\0';
+				register_pdu.content_name[m-1] = '\0'; //sets \n to \0
 				FILE* fp = fopen(register_pdu.content_name, "r");
 			
 				if (fp == NULL) {
-					//spdu.type = 'E';
 					printf("Error: No File\n");
-					//sendto(s, &spdu, 101, 0, (struct sockaddr *)&fsin, sizeof(fsin));
 				}
 				else{
 					register_pdu.type = 'R';
-					sprintf(register_pdu.peer_name, "%s", host_name);  //, 6);
-	
-					port_length = get_int_len(peer1_tcp.sin_port);
-					
-					sprintf(register_pdu.port_number, "%d", peer1_tcp.sin_port);
-					sprintf(register_pdu.ip_address, "%d", peer1_tcp.sin_addr.s_addr);
-					register_pdu.port_number[port_length] = '\0';
 
+					sprintf(register_pdu.peer_name, "%s", host_name); //copy hostname into the pdu field peer_name
+	
+					port_length = get_int_len(peer1_tcp.sin_port); //get the length of the port number in digits
+					//ip_length = get_int_len(peer1_tcp.sin_addr.s_addr)
+
+					sprintf(register_pdu.port_number, "%d", peer1_tcp.sin_port); //copy the port number into the pdu field port_number
+					sprintf(register_pdu.ip_address, "%d", peer1_tcp.sin_addr.s_addr); //copy the ip address into the pdu field ip_address
+
+					register_pdu.port_number[port_length] = '\0'; //since port number could be diff lengths, set the char after the last digit to \0
+					//register_pdu.ip_address[ip_length] = '\0';
 			
 					printf("Port number: %s\n", register_pdu.port_number);
+
+					//send the register pdu to the index server
 					sendto(s, &register_pdu, sizeof(register_pdu), 0, (struct sockaddr *)&sin, sizeof(sin)); 
 
+					//copy the content name into a list of registered content, so when peer quits it knows all the content to deregister
 					sprintf(registered_content_list[registered_content_index], "%s", register_pdu.content_name);
 					registered_content_index++;
 				}
 			}
+			//Search server for content
 			else if(function[0] == 'S')
 			{
+				//init all to empty
 				memset(&search_pdu, 0, sizeof(search_pdu));
 				memset(&other_host_name, 0, 10);
 				memset(&content_name, 0, 10);
 
-				search_pdu.type = 'S';
+				search_pdu.type = 'S'; //set type to S so server knows what to do
 		
 				printf("Enter the name of the host to search the server for:\n");
 				m = read(0, other_host_name, 10);
 				other_host_name[m-1] = '\0';
 				
-				sprintf(search_pdu.peer_name, "%s", other_host_name);
+				sprintf(search_pdu.peer_name, "%s", other_host_name); //copy host name into search pdu field peer_name
 		
 				printf("Enter the name of the content to search the server for:\n");
 				m = read(0, content_name, 10);
 				content_name[m-1] = '\0';
 		
-				sprintf(search_pdu.content_name, "%s", content_name);
+				sprintf(search_pdu.content_name, "%s", content_name); //copy content name into search pdu field content_name
 
-				sendto(s, &search_pdu, sizeof(search_pdu), 0, (struct sockaddr *)&sin, sizeof(sin));
+				sendto(s, &search_pdu, sizeof(search_pdu), 0, (struct sockaddr *)&sin, sizeof(sin)); //send search pdu to index server
 		
-				memset(&acknowledge, 0, sizeof(acknowledge));
-				recvfrom(s, &acknowledge, sizeof(&acknowledge), 0, (struct sockaddr *)&sin, &alen);
+				memset(&acknowledge, 0, sizeof(acknowledge)); //init recieve pdu to empty
+				recvfrom(s, &acknowledge, sizeof(&acknowledge), 0, (struct sockaddr *)&sin, &alen); //recieve back info from server 
 			
+				//if the receive pdu has type E then content doesnt exist
 				if(acknowledge.type == 'E'){
-					write(1, "Content does not exist", 22);
-					exit(1);
+					write(1, "Content does not exist\n", 24);
 				}	
+				//if the recieve pdu has type A then the content does exist
 				else if(acknowledge.type == 'A'){
-					write(1, "Content exists at this peer", 27);
+					write(1, "Content exists at this peer\n", 31);
 				}
 		
 			}
+			//Download content from another peer
 			else if(function[0] == 'D')
 			{
+				//init all to empty
 				memset(&search_pdu, 0, sizeof(search_pdu));
 				memset(&other_host_name, 0, 10);
 				memset(&content_name, 0, 10);
@@ -271,21 +290,15 @@ int main(int argc, char **argv)
 		
 				sprintf(search_pdu.content_name, "%s", content_name);
 
+				//send search pdu to server
 				sendto(s, &search_pdu, sizeof(search_pdu), 0, (struct sockaddr *)&sin, sizeof(sin));
 		
 				memset(&acknowledge, 0, sizeof(acknowledge));
+
+				//recieve pdu from server which will contain information of the peer you want to download content from
 				recvfrom(s, &acknowledge, sizeof(acknowledge), 0, (struct sockaddr *)&sin, &alen);
 		
-				for(i=0; i<10; i++){
-					download_pdu.peer_name[i] = acknowledge.data[i];
-					download_pdu.content_name[i] = acknowledge.data[i+10];
-					if(i < 6){
-						download_pdu.port_number[i] = acknowledge.data[i+20];
-						download_pdu.ip_address[i] = acknowledge.data[i+27];
-					}
-		//
-				}
-		
+				//determine if content exists before proceeding
 				if(acknowledge.type == 'E'){
 					write(1, "Content does not exist", 22);
 					exit(1);
@@ -294,21 +307,31 @@ int main(int argc, char **argv)
 					write(1, "Content exists at this peer", 27);
 				}
 		
-				//recieve from other peer via tcp
+				//since the recieve pdu has only 1 field of 100 byte size, need to iterate over each char and assign it to the appropriate fields
+				for(i=0; i<10; i++){
+					download_pdu.peer_name[i] = acknowledge.data[i];
+					download_pdu.content_name[i] = acknowledge.data[i+10];
+					if(i < 6){
+						download_pdu.port_number[i] = acknowledge.data[i+20];
+						download_pdu.ip_address[i] = acknowledge.data[i+27];
+					}
+				}
+				
 
-
+				//create a new tcp socket to connect with the other peer in order to download content
 				if ((sd_read = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
 					fprintf(stderr, "Can't creat a socket\n");
 					exit(1);
 				}
 				
 				bzero((char *)&new_peer, sizeof(struct sockaddr_in));
-				new_peer.sin_family = AF_INET;
-				new_peer.sin_port = atoi(download_pdu.port_number);
+				new_peer.sin_family = AF_INET; //IPV4
+				new_peer.sin_port = atoi(download_pdu.port_number); //atoi converts a string into an integer, assign port number recieved from server
 
 				//ip_addr.s_addr = atoi(download_pdu.ip_address);
 				//new_peer.sin_addr.s_addr = inet_addr(inet_ntoa(ip_addr));
 				
+				//conver host name to a format the socket can use
 				if(hp = gethostbyname(host)){
 					bcopy(hp->h_addr, (char *)&new_peer.sin_addr, hp->h_length);
 				}
@@ -316,28 +339,21 @@ int main(int argc, char **argv)
 					printf("error");
 				}
 
-
-				printf("%d\n", new_peer.sin_port );
-				//printf("%d", new_peer.sin_addr.s_addr );
-				
-				
-
+				//connect new tcp port created to the other peer you want to download content from
 				if (connect(sd_read, (struct sockaddr *)&new_peer, sizeof(new_peer)) == -1){
 				  	fprintf(stderr, "Can't connect \n");
 				  	exit(1);
 				}
 
-				struct content_pdu content;
-				memset(&content, 0, sizeof(content));
-				FILE *fp;
-				write(sd_read, content_name, sizeof(content_name));
-				fp = fopen(content_name, "a");
+				struct content_pdu content; //content struct with 1 byte for type and 1459 bytes for data
+				memset(&content, 0, sizeof(content)); //init pdu to empty
+				FILE *fp; //init file pointer
+
+				write(sd_read, content_name, sizeof(content_name)); //send name of content you want to other peer 
+				
 
 				n = read(sd_read, &content, 1460);    //read the first 1459 bytes of the file from server
-				fputs(content.data, fp);			//write contents to file
-
 				
-				fclose(fp);
 				
 				
 				if(content.type == 'E'){		//compare message from server to see if theres a file not found error
@@ -345,38 +361,52 @@ int main(int argc, char **argv)
 				}
 				else
 				{
-					while(n == 1460){			//if n == 100 then the max bytes were read, so read from server again					
-						fp = fopen(content_name, "a");
+					fp = fopen(content_name, "a"); 	//open the file in append mode
+					fputs(content.data, fp);			//write contents to file
+					fclose(fp); 						//close the file pointer
 
-						n = read(sd_read, &content, 1460);    //read the first 1459 bytes of the file from server
+					while(n == 1460){					//if n == 1460 then the max bytes were read, so read from server again					
+						n = read(sd_read, &content, 1460);    //read the next 1459 bytes of the file from server
+
+						fp = fopen(content_name, "a"); 	//open file in append mode
 						fputs(content.data, fp);			//write contents to file
-
-						fclose(fp);
-						
+						fclose(fp); 					//close file pointer
 					}
-					close(sd_read);
+					
+					close(sd_read); //when file transfer is complete, close the tcp socket
 				
-				
+					//immediately after file download, this peer needs to register the content with the server
+
+					//init register pdu to empty
 					memset(&register_pdu, 0, sizeof(register_pdu));
 					register_pdu.type = 'R';
-					sprintf(register_pdu.peer_name, "%s", host_name);  //, 6);
-					sprintf(register_pdu.content_name, "%s", content_name);
+
+					sprintf(register_pdu.peer_name, "%s", host_name);  		//copy host name to register pdu field peer_name
+					sprintf(register_pdu.content_name, "%s", content_name); //copy content name to register pdu field content_name
 						
-					port_length = get_int_len(peer1_tcp.sin_port);
+					port_length = get_int_len(peer1_tcp.sin_port); //get length in digits of port number
+					//ip_length = get_int_len(peer1_tcp.sin_addr.s_addr)
+
+					sprintf(register_pdu.port_number, "%d", peer1_tcp.sin_port);   //copy port number into reg pdu field port_number
+					sprintf(register_pdu.ip_address, "%d", peer1_tcp.sin_addr.s_addr); //copy ip addr into reg pdu field ip_address
 					
-					sprintf(register_pdu.port_number, "%d", peer1_tcp.sin_port);
-					sprintf(register_pdu.ip_address, "%d", peer1_tcp.sin_addr.s_addr);
-					register_pdu.port_number[port_length] = '\0';
-						
+					register_pdu.port_number[port_length] = '\0'; //since port number could be diff lengths, set the char after the last digit to \0
+					//register_pdu.ip_address[ip_length] = '\0';
+
+					//send register pdu to server via udp to register this new content under this peer
 					sendto(s, &register_pdu, sizeof(register_pdu), 0, (struct sockaddr *)&sin, sizeof(sin)); 
 				}
 			}
+			//List content registered on the server
 			else if(function[0] == 'O')
 			{
 				memset(&listing, 0, sizeof(listing));
 				listing.type = 'O';
+
+				//send a pdu with the only data being the type O, which lets the server know we want to see all registered content
 				sendto(s, &listing, sizeof(listing), 0, (struct sockaddr *)&sin, sizeof(sin)); 
 				
+				//recieving a general pdu from the server with 100 bytes of data to list the 10 possible content names
 				memset(&listing, 0, sizeof(listing));
 				recvfrom(s, &listing, sizeof(listing), 0, (struct sockaddr *)&sin, &alen);
 				if(listing.type != 'O'){
@@ -384,6 +414,7 @@ int main(int argc, char **argv)
 					exit(1);
 				}
 
+				//recieving a general pdu from server with 100 bytes of data to list the corresponding 10 possible peers that are hosting the content
 				memset(&listing_peers, 0, sizeof(listing_peers));
 				recvfrom(s, &listing_peers, sizeof(listing_peers), 0, (struct sockaddr *)&sin, &alen);
 				if(listing_peers.type != 'O'){
@@ -391,6 +422,7 @@ int main(int argc, char **argv)
 					exit(1);
 				}
 
+				//print all 10 content names with their corresponding peers
 				for(i = 0; i<(sizeof(listing.data)/10); i++){
 				
 					printf("Name of content/host %d: %.*s, %.*s\n",i+1, (i+1)*10, (i*10) + listing.data, (i+1)*10, (i*10) + listing_peers.data);
@@ -398,6 +430,7 @@ int main(int argc, char **argv)
 				
 				
 			}
+			//Deregister
 			else if(function[0] == 'T')
 			{		
 
@@ -411,113 +444,92 @@ int main(int argc, char **argv)
 				content_name[m-1] = '\0';
 		
 				sprintf(dereg_pdu.content_name, "%s", content_name);
-
-				write(1, &dereg_pdu, sizeof(dereg_pdu));
 				
+				//send pdu to server with type T and content and host information for server to deregister
 				sendto(s, &dereg_pdu, sizeof(dereg_pdu), 0, (struct sockaddr *)&sin, sizeof(sin)); 
 			}
+			//Quit: when a peer quits, all content they have registered must be deregistered before they can exit
 			else if(function[0] == 'Q')
 			{
+				//so for each content in the list of content registered_content_list, send a T type pdu so the server can deregister
+
 				memset(&dereg_pdu, 0, sizeof(dereg_pdu));
 				dereg_pdu.type = 'T';
 		
-				sprintf(dereg_pdu.peer_name, "%s", host_name);
+				sprintf(dereg_pdu.peer_name, "%s", host_name); //copy peer name into pdu because that will be the same for each deregistration pdu
 
+				//iterate of each piece of content in the registered_content_list array
 				for(i = 0; i < registered_content_index; i++){
-					sprintf(dereg_pdu.content_name, "%s", registered_content_list[i]);
-					sendto(s, &dereg_pdu, sizeof(dereg_pdu), 0, (struct sockaddr *)&sin, sizeof(sin)); 
+					sprintf(dereg_pdu.content_name, "%s", registered_content_list[i]); //copy the content name into the deregister pdu field contetn_name
+					sendto(s, &dereg_pdu, sizeof(dereg_pdu), 0, (struct sockaddr *)&sin, sizeof(sin)); //send a T type pdu to server to deregister the content
 				}
-				exit(0);			
+				exit(0); //exit the application
 			}
 			
-			user_flag = 1;
+			user_flag = 1; //when this if statement is finished, we want the options at the top to re-print, so user_flag = 1
 		
 		}
-	
+
+		//if connection is recieved via the tcp port as opposed to standard in
 		if(FD_ISSET(sd, &rfds)){
 			
 			alen_client = sizeof(client);
-			sd_new = accept(sd, (struct sockaddr *)&client, &alen_client);			
-			if(sd_new < 0){
+			sd_new = accept(sd, (struct sockaddr *)&client, &alen_client);	//create a new socket using the accept function		
+			if(sd_new < 0){ //if sd_new < 0 then the socket wasnt created
 			    printf("accept error: %s\n", strerror(errno));
 			    fprintf(stderr, "Can't accept client \n");
 			    exit(1);
 			  }
-			  switch (fork()){
+			  switch (fork()){  //create a child process which is identical to the parent
 			  case 0:		/* child */
-				(void) close(sd);
+			  	//deal with the new socket in the child process
+				(void) close(sd);  //close the original socket in the child
 				char filename[30];
 				char buffer[1459];
 				int n;
-				struct content_pdu content;
+				struct content_pdu content; //pdu that this peer will send to the other with file data - 1 byte for type, 1459 bytes for data
 				FILE *fp;
-				n = read(sd_new, filename, 30);
-				filename[strcspn(filename, "\n")] = 0;
-				fp = fopen(filename, "r");
-				char * p = buffer;
+				
+				n = read(sd_new, filename, 30); //read file name from other peer
+				filename[strcspn(filename, "\n")] = 0; //set \n to 0
+				fp = fopen(filename, "r");  //open file in read mode
+				
+				char * p = buffer; //pointer to the buffer that will read from the file
 				int j = 0;
-				fgets(buffer, 5000, fp);
-				content.type = 'C';
-				sprintf(content.data, p+(j*1459), 1459);
-				j++;
-				n = write(sd_new, &content, 1460);
+				 
+				fgets(buffer, 5000, fp);  //read 5000 bytes from the file
 				
-				while(n == 1460){
-					sprintf(content.data, p+(j*1459), 1459);
-					n = write(sd_new, &content, 1460);
+				content.type = 'C';  //set type to C, meaning data pdu
 
-				}
-				fclose(fp);
-				close(sd_new);
+				sprintf(content.data, p+(j*1459), 1459); //copy first 1459 bytes of file to content.data
+				j++;
+				n = write(sd_new, &content, 1460); //send first 1459 bytes to other peer
 				
-				exit(0);
+				while(n == 1460){  //if n == 1460 then max bytes were sent, so need to send another pdu with more data from the file
+					memset(&content, 0, sizeof(content));  //reset content pdu to empty
+					content.type = 'C';
+					sprintf(content.data, p+(j*1459), 1459); //copy next 1459 bytes from file buffer to content.data
+					n = write(sd_new, &content, 1460); //send pdu with next 1459 bytes to other peer
+					j++;
+				}
+				fclose(fp); //close file pointer
+				close(sd_new); //close this new socket
+				
+				exit(0); //exit child process
 			  default:		/* parent */
-				(void) close(sd_new);
+				(void) close(sd_new); //in original process close the new socket that was created via accept() function
 				break;
 			  case -1:
 				fprintf(stderr, "fork: error\n");
 				
 			  }
 			
-			user_flag = 0;
+			user_flag = 0; //if this block of code has run then we dont want the options at the top to reprint since they have just been printed, so user_flag = 0
 			
 		}
 	}
-	/*while(n = read(s, socket_read_buf, 101)) {
-		
-		memcpy(&spdu, socket_read_buf, 101);
-		
-		if (spdu.type == 'C') {
-			memcpy(file_name, spdu.data, n - 4);
-			file_name[n - 1] = '\0';
-			fp = fopen(file_name, "w");
-		}
-		else if (spdu.type == 'D') {
-			fwrite(spdu.data, 1, n - 1, fp);
-		}
-		else if (spdu.type == 'F') {
-			int i;
-			int data_size = 0;
-			for (i = 0; i < n - 1; i++) {
-				if (spdu.data[i] == '\0') {
-					data_size = i + 1;
-					break;
-				}
-			}
-			fwrite(spdu.data, 1, data_size - 1, fp);
-			fclose(fp);
-			break;
-		}
-		else if (spdu.type == 'E') {
-			printf("Got an error\n");
-			printf("Error. File Didnt Send.\n");
-			exit(1);
-			
-		}
-	}*/
 
-	
-	close(s);
-	close(sd);
-	exit(0);
+	close(s); //close udp socket
+	close(sd); //close tcp socket
+	exit(0); //exit process
 }
